@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --line: rgba(15, 16, 18, 0.1);
+  --line-dark: rgba(255, 255, 255, 0.12);
+  --nav-offset: 84px;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: var(--nav-offset);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-bone text-ink font-sans antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3, h4 {
+    text-wrap: balance;
+  }
+
+  ::selection {
+    background: #c49a48;
+    color: #0f1012;
+  }
+
+  :focus-visible {
+    outline: 2px solid #c49a48;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Keep a comfortable measure on long-form copy */
+  p {
+    text-wrap: pretty;
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-container px-5 sm:px-6 lg:px-8;
+  }
+
+  .eyebrow {
+    @apply font-mono text-label uppercase text-gold;
+  }
+
+  .hairline {
+    border: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .hairline-dark {
+    border: 0;
+    border-top: 1px solid var(--line-dark);
+  }
+
+  .link-underline {
+    @apply relative inline-flex items-center gap-1.5 font-medium text-ink transition-colors;
+  }
+  .link-underline::after {
+    content: "";
+    @apply absolute -bottom-0.5 left-0 h-px w-full origin-left scale-x-0 bg-current transition-transform duration-300 ease-out;
+  }
+  .link-underline:hover::after {
+    @apply scale-x-100;
+  }
+}
+
+@layer utilities {
+  /* Scroll reveal — applied by the Reveal client component */
+  .reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition:
+      opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
