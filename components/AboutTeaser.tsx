@@ -1,5 +1,5 @@
+import Image from "next/image";
 import { Button } from "@/components/ui/Button";
-import { MediaPlaceholder } from "@/components/ui/MediaPlaceholder";
 import { Reveal } from "@/components/ui/Reveal";
 
 export function AboutTeaser() {
@@ -7,7 +7,15 @@ export function AboutTeaser() {
     <section className="border-t border-line bg-bone">
       <div className="container-page grid items-center gap-10 py-section lg:grid-cols-2 lg:gap-16">
         <Reveal className="lg:order-2">
-          <MediaPlaceholder label="Kassidy — environmental portrait" ratio="aspect-[4/5]" />
+          <div className="relative aspect-[4/5] overflow-hidden rounded-card border border-line-dark bg-ink-soft">
+            <Image
+              src="/kassidy-lane-headshot.jpg"
+              alt="Kassidy Lane professional headshot"
+              fill
+              sizes="(min-width: 1024px) 40vw, 100vw"
+              className="object-cover object-center"
+            />
+          </div>
         </Reveal>
         <Reveal className="lg:order-1">
           <p className="eyebrow">The person behind the deals</p>
