@@ -74,6 +74,9 @@ export type ServiceSectionData = {
   body: string;
   checklist: string[];
   cta: { label: string; href: string };
+  image: string;
+  imageAlt: string;
+  imagePosition?: string;
 };
 
 export const howIHelpSections: ServiceSectionData[] = [
@@ -89,6 +92,9 @@ export const howIHelpSections: ServiceSectionData[] = [
       "Clear communication from list to close",
     ],
     cta: { label: "Get my home value", href: "/home-value" },
+    image: "/kassidylane-sellers-card.jpg",
+    imageAlt: "Modern Las Vegas home listed for sale",
+    imagePosition: "object-[30%_50%]",
   },
   {
     id: "buyers",
@@ -102,6 +108,8 @@ export const howIHelpSections: ServiceSectionData[] = [
       "Straight answers, no pressure",
     ],
     cta: { label: "Talk to Kassidy", href: "/contact?type=buying" },
+    image: "/kassidylane-buyers-card.jpg",
+    imageAlt: "Welcoming modern home entrance for buyers in Las Vegas",
   },
   {
     id: "investors",
@@ -115,6 +123,8 @@ export const howIHelpSections: ServiceSectionData[] = [
       "Repairs and contractor management",
     ],
     cta: { label: "Discuss an investment", href: "/contact?type=investing" },
+    image: "/kassidylane-investors-card.jpg",
+    imageAlt: "Modern multi-unit investment property in Las Vegas",
   },
   {
     id: "difficult",
@@ -128,5 +138,7 @@ export const howIHelpSections: ServiceSectionData[] = [
       "Fell-out-of-escrow rescues",
     ],
     cta: { label: "See difficult deals", href: "/probate-and-difficult-deals" },
+    image: "/kassidylane-complicated-deals-card.jpg",
+    imageAlt: "Complex real estate property transformation in Las Vegas",
   },
 ];

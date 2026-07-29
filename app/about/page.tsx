@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { PageHero } from "@/components/Hero";
-import { MediaPlaceholder } from "@/components/ui/MediaPlaceholder";
 import { CredentialsStrip } from "@/components/TrustMicroBar";
 import { CTABanner } from "@/components/CTABanner";
 import { Reveal } from "@/components/ui/Reveal";
@@ -89,7 +89,15 @@ export default function AboutPage() {
               </ol>
             </div>
             <Reveal className="lg:pt-16">
-              <MediaPlaceholder label="Kassidy & family — portrait" ratio="aspect-[4/5]" />
+              <div className="relative aspect-[4/5] overflow-hidden rounded-card border border-line-dark bg-ink-soft">
+                <Image
+                  src="/kassidylane-family-portrait.jpg"
+                  alt="Kassidy Lane with family"
+                  fill
+                  sizes="(min-width: 1024px) 40vw, 100vw"
+                  className="object-cover object-center"
+                />
+              </div>
             </Reveal>
           </div>
         </Container>
@@ -132,7 +140,15 @@ export default function AboutPage() {
               </p>
             </Reveal>
             <Reveal>
-              <MediaPlaceholder label="Community / bilingual — photo" ratio="aspect-[4/3]" />
+              <div className="relative aspect-[4/3] overflow-hidden rounded-card border border-line-dark bg-ink-soft">
+                <Image
+                  src="/kassidylane-community-bilingual-card.jpg"
+                  alt="Kassidy Lane community and bilingual real estate services"
+                  fill
+                  sizes="(min-width: 1024px) 50vw, 100vw"
+                  className="object-cover object-center"
+                />
+              </div>
             </Reveal>
           </div>
         </Container>

@@ -1,7 +1,7 @@
+import Image from "next/image";
 import type { ServiceSectionData } from "@/content/services";
 import { Button } from "@/components/ui/Button";
 import { Checklist } from "@/components/Checklist";
-import { MediaPlaceholder } from "@/components/ui/MediaPlaceholder";
 import { Reveal } from "@/components/ui/Reveal";
 
 export function ServiceSection({
@@ -24,7 +24,15 @@ export function ServiceSection({
           </div>
         </Reveal>
         <Reveal className={flip ? "lg:order-1" : ""}>
-          <MediaPlaceholder label={`${data.eyebrow} — photo`} ratio="aspect-[4/3]" />
+          <div className="relative aspect-[4/3] overflow-hidden rounded-card border border-line-dark bg-ink-soft">
+            <Image
+              src={data.image}
+              alt={data.imageAlt}
+              fill
+              sizes="(min-width: 1024px) 50vw, 100vw"
+              className={`object-cover ${data.imagePosition ?? "object-center"}`}
+            />
+          </div>
         </Reveal>
       </div>
     </section>
