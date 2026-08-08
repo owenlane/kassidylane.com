@@ -30,7 +30,7 @@ const typeMap: Record<string, string> = {
 
 export function ContactForm({ defaultType, spanish = false }: { defaultType?: string; spanish?: boolean }) {
   const initialType = (defaultType && typeMap[defaultType]) || "Selling";
-  const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "submitting" | "success" | "degraded" | "error">("idle");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const t = spanish
@@ -44,6 +44,8 @@ export function ContactForm({ defaultType, spanish = false }: { defaultType?: st
         sending: "Enviando…",
         successTitle: "¡Gracias!",
         successBody: "Kassidy se pondrá en contacto contigo pronto. ¿Prefieres hablar ahora?",
+        degradedBody:
+          "Hemos recibido tu mensaje. Para que no se pierda, por favor llama o envía un mensaje a Kassidy directamente.",
         err: "Algo salió mal. Inténtalo de nuevo o llama al",
         req: "Este campo es obligatorio.",
         emailErr: "Ingresa un correo válido.",
@@ -58,6 +60,8 @@ export function ContactForm({ defaultType, spanish = false }: { defaultType?: st
         sending: "Sending…",
         successTitle: "Thanks — message sent.",
         successBody: "Kassidy will get back to you shortly. Prefer to talk now?",
+        degradedBody:
+          "We’ve received your message. So it isn’t missed, please also call or text Kassidy directly to confirm.",
         err: "Something went wrong. Please try again or call",
         req: "This field is required.",
         emailErr: "Enter a valid email.",
@@ -87,19 +91,22 @@ export function ContactForm({ defaultType, spanish = false }: { defaultType?: st
         body: JSON.stringify({ ...payload, source: spanish ? "contact-es" : "contact" }),
       });
       if (!res.ok) throw new Error();
-      setStatus("success");
+      const result = await res.json().catch(() => ({ notified: false }));
+      setStatus(result?.notified ? "success" : "degraded");
       form.reset();
     } catch {
       setStatus("error");
     }
   }
 
-  if (status === "success") {
+  if (status === "success" || status === "degraded") {
     return (
       <div className="rounded-card border border-line bg-paper p-8 text-center shadow-soft">
         <CheckCircle2 className="mx-auto h-10 w-10 text-success" aria-hidden />
         <h2 className="mt-4 font-serif text-h3 text-ink">{t.successTitle}</h2>
-        <p className="mx-auto mt-2 max-w-md text-body text-slate">{t.successBody}</p>
+        <p className="mx-auto mt-2 max-w-md text-body text-slate">
+          {status === "degraded" ? t.degradedBody : t.successBody}
+        </p>
         <a href={site.phoneHref} className="mt-5 inline-flex items-center gap-2 font-medium text-ink">
           <Phone className="h-4 w-4 text-gold" aria-hidden /> {site.phoneDisplay}
         </a>

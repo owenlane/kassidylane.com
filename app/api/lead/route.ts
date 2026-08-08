@@ -4,12 +4,33 @@ export const runtime = "nodejs";
 
 // ---------------------------------------------------------------------------
 // Centralized lead pipeline. Every website form (Home Value, Contact, Spanish
-// Contact) submits here. On each valid lead: email via Resend + SMS via
-// Twilio, each attempted independently. Optional Supabase storage retained.
-// All providers are env-gated and the route degrades gracefully when unset.
+// Contact) submits here.
+//
+// State contract (see LeadState below): the route tracks emailConfigured /
+// emailAttempted / emailAccepted separately and NEVER reports notification
+// success merely because the payload validated. Email is the business-critical
+// notification; SMS and storage are optional and cannot invalidate it.
 // ---------------------------------------------------------------------------
 
 type LeadPayload = Record<string, unknown>;
+
+type EmailFailureCategory =
+  | "not_configured"
+  | "provider_rejected"
+  | "network_error"
+  | null;
+
+type LeadState = {
+  leadAccepted: boolean;
+  emailConfigured: boolean;
+  emailAttempted: boolean;
+  emailAccepted: boolean;
+  emailMessageId: string | null;
+  emailFailureCategory: EmailFailureCategory;
+  smsAttempted: boolean;
+  smsAccepted: boolean;
+  storageSucceeded: boolean;
+};
 
 const SOURCES: Record<string, string> = {
   "home-value": "New Home Value Lead",
@@ -17,7 +38,6 @@ const SOURCES: Record<string, string> = {
   "contact-es": "New Spanish Contact Lead",
 };
 
-// Field-level length limits (defense against abuse; generous for real use)
 const LIMITS: Record<string, number> = {
   name: 120,
   email: 254,
@@ -35,7 +55,6 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function clean(value: unknown, max: number): string {
   if (typeof value !== "string") return "";
-  // Strip control characters (incl. header-injection newlines), collapse, trim
   return value
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
     .replace(/\r\n?/g, "\n")
@@ -52,7 +71,6 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-// Safe display normalization for US-style numbers; falls back to cleaned input
 function normalizePhone(raw: string): string {
   const digits = raw.replace(/\D/g, "");
   if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
@@ -73,6 +91,14 @@ const FIELD_LABELS: Record<string, string> = {
   source: "Form",
 };
 
+// Safe structured diagnostics. Never logs secrets, headers, or full payloads.
+function logDiag(fields: Record<string, unknown>) {
+  const safe = Object.fromEntries(
+    Object.entries(fields).filter(([, v]) => v !== undefined && v !== null)
+  );
+  console.log(`[LEAD_DIAG] ${JSON.stringify(safe)}`);
+}
+
 export async function POST(req: Request) {
   let raw: LeadPayload;
   try {
@@ -87,22 +113,19 @@ export async function POST(req: Request) {
 
   // Honeypot: bots that fill the hidden field get a silent success.
   if (typeof raw.company === "string" && raw.company.length > 0) {
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, notified: true });
   }
 
-  // Reject bloated payloads outright.
   if (Object.keys(raw).length > MAX_FIELDS) {
     return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
   }
 
-  // Sanitize every known field; unknown fields are dropped.
   const lead: Record<string, string> = {};
   for (const [key, max] of Object.entries(LIMITS)) {
     const v = clean(raw[key], max);
     if (v) lead[key] = v;
   }
 
-  // Validate
   const source = SOURCES[lead.source] ? lead.source : null;
   if (!source) {
     return NextResponse.json({ ok: false, error: "Unsupported form" }, { status: 400 });
@@ -111,6 +134,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Missing required fields" }, { status: 400 });
   }
   if (lead.phone) lead.phone = normalizePhone(lead.phone);
+
+  // Optional correlation ID for tracing a specific authorized test end to end.
+  const testId = clean(raw.testId, 64) || null;
+
+  const state: LeadState = {
+    leadAccepted: true,
+    emailConfigured: false,
+    emailAttempted: false,
+    emailAccepted: false,
+    emailMessageId: null,
+    emailFailureCategory: null,
+    smsAttempted: false,
+    smsAccepted: false,
+    storageSucceeded: false,
+  };
 
   const formLabel = SOURCES[source];
   const submittedAt = new Date().toISOString();
@@ -121,7 +159,9 @@ export async function POST(req: Request) {
     .map((k) => ({ label: FIELD_LABELS[k] ?? k, value: lead[k] }));
 
   const textBody =
-    `${formLabel} — kassidylane.net\nSubmitted: ${submittedAt}\nForm: ${source}\n\n` +
+    `${formLabel} — kassidylane.net\nSubmitted: ${submittedAt}\nForm: ${source}\n` +
+    (testId ? `Test ID: ${testId}\n` : "") +
+    `\n` +
     rows.map((r) => `${r.label}: ${r.value}`).join("\n");
 
   const htmlBody = `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;color:#0F1012;margin:0;padding:24px;background:#F6F2EA">
@@ -142,13 +182,25 @@ export async function POST(req: Request) {
   </div>
 </body></html>`;
 
-  // Provider attempts are independent: a failure in one never blocks the others.
-  const results = { email: false, sms: false, stored: false };
-
-  // 1) Email via Resend
+  // ---- 1) Email via Resend (business-critical) ----
   const notifyTo = process.env.LEAD_NOTIFICATION_EMAIL || process.env.LEAD_NOTIFY_TO;
   const notifyFrom = process.env.LEAD_FROM_EMAIL || process.env.LEAD_NOTIFY_FROM;
-  if (process.env.RESEND_API_KEY && notifyTo && notifyFrom) {
+  state.emailConfigured = Boolean(process.env.RESEND_API_KEY && notifyTo && notifyFrom);
+
+  if (!state.emailConfigured) {
+    state.emailFailureCategory = "not_configured";
+    // Names only — never values. Makes a missing/misnamed var immediately visible.
+    logDiag({
+      event: "email_not_configured",
+      source,
+      testId,
+      hasApiKey: Boolean(process.env.RESEND_API_KEY),
+      hasRecipient: Boolean(notifyTo),
+      hasSender: Boolean(notifyFrom),
+      at: submittedAt,
+    });
+  } else {
+    state.emailAttempted = true;
     try {
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -160,21 +212,63 @@ export async function POST(req: Request) {
           from: notifyFrom,
           to: notifyTo,
           reply_to: lead.email,
-          subject: `[KassidyLane.net] ${formLabel}`,
+          subject: `[KassidyLane.net] ${formLabel}${testId ? ` (${testId})` : ""}`,
           text: textBody,
           html: htmlBody,
         }),
       });
-      results.email = res.ok;
-      if (!res.ok) console.error("Resend non-OK status:", res.status);
+
+      // Parse the provider response body so acceptance/rejection is diagnosable.
+      let body: unknown = null;
+      try {
+        body = await res.json();
+      } catch {
+        body = null;
+      }
+      const parsed = (body ?? {}) as { id?: string; name?: string; message?: string };
+
+      if (res.ok) {
+        state.emailAccepted = true;
+        state.emailMessageId = parsed.id ?? null;
+        logDiag({
+          event: "email_accepted",
+          provider: "resend",
+          source,
+          testId,
+          messageId: state.emailMessageId,
+          status: res.status,
+          at: new Date().toISOString(),
+        });
+      } else {
+        state.emailFailureCategory = "provider_rejected";
+        logDiag({
+          event: "email_rejected",
+          provider: "resend",
+          source,
+          testId,
+          status: res.status,
+          errorType: parsed.name ?? null,
+          errorMessage: parsed.message ?? null,
+          at: new Date().toISOString(),
+        });
+      }
     } catch (err) {
-      console.error("Resend request failed:", err instanceof Error ? err.message : "unknown");
+      state.emailFailureCategory = "network_error";
+      logDiag({
+        event: "email_network_error",
+        provider: "resend",
+        source,
+        testId,
+        errorMessage: err instanceof Error ? err.message : "unknown",
+        at: new Date().toISOString(),
+      });
     }
   }
 
-  // 2) SMS via Twilio Programmable Messaging
+  // ---- 2) SMS via Twilio (optional; cannot invalidate email) ----
   const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER, LEAD_SMS_TO } = process.env;
   if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM_NUMBER && LEAD_SMS_TO) {
+    state.smsAttempted = true;
     try {
       const smsLines = [
         "NEW WEBSITE LEAD",
@@ -200,14 +294,22 @@ export async function POST(req: Request) {
           body: params.toString(),
         }
       );
-      results.sms = res.ok;
-      if (!res.ok) console.error("Twilio non-OK status:", res.status);
+      state.smsAccepted = res.ok;
+      if (!res.ok) {
+        logDiag({ event: "sms_rejected", provider: "twilio", source, testId, status: res.status });
+      }
     } catch (err) {
-      console.error("Twilio request failed:", err instanceof Error ? err.message : "unknown");
+      logDiag({
+        event: "sms_network_error",
+        provider: "twilio",
+        source,
+        testId,
+        errorMessage: err instanceof Error ? err.message : "unknown",
+      });
     }
   }
 
-  // 3) Optional storage via Supabase (existing behavior, retained)
+  // ---- 3) Optional storage via Supabase (optional; cannot invalidate email) ----
   if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
     try {
       const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/leads`, {
@@ -227,17 +329,31 @@ export async function POST(req: Request) {
           created_at: submittedAt,
         }),
       });
-      results.stored = res.ok;
+      state.storageSucceeded = res.ok;
     } catch (err) {
-      console.error("Supabase store failed:", err instanceof Error ? err.message : "unknown");
+      logDiag({
+        event: "storage_error",
+        source,
+        testId,
+        errorMessage: err instanceof Error ? err.message : "unknown",
+      });
     }
   }
 
-  // Fallback: keep leads recoverable from server logs before providers are configured.
-  if (!results.email && !results.sms && !results.stored) {
-    console.log(`[LEAD:${source}] ${submittedAt}\n${textBody}`);
+  // Last-resort capture so a lead is never lost when no notification succeeded.
+  if (!state.emailAccepted && !state.smsAccepted && !state.storageSucceeded) {
+    console.log(`[LEAD_FALLBACK:${source}] ${submittedAt}\n${textBody}`);
   }
 
-  // Client receives success whenever the lead was accepted; provider details stay server-side.
-  return NextResponse.json({ ok: true });
+  // ---- Response semantics ----
+  // ok       = the application accepted and captured the lead (APPLICATION_ACCEPTED)
+  // notified = the email provider accepted the message      (PROVIDER_ACCEPTED)
+  //
+  // These are deliberately separate. `ok` never implies delivery. The lead is
+  // captured server-side either way, so this stays 200 rather than an error
+  // status: a hard error would push the visitor into duplicate resubmissions
+  // for a lead that was in fact received. The frontend renders a degraded
+  // "call to confirm" state when notified is false.
+  // Provider error detail stays server-side; the client never sees it.
+  return NextResponse.json({ ok: true, notified: state.emailAccepted });
 }

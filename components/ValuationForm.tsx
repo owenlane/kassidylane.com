@@ -12,7 +12,7 @@ const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const phoneRe = /[0-9]{7,}/;
 
 export function ValuationForm() {
-  const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "submitting" | "success" | "degraded" | "error">("idle");
   const [errors, setErrors] = useState<Errors>({});
   const [name, setName] = useState("");
 
@@ -49,21 +49,25 @@ export function ValuationForm() {
         body: JSON.stringify({ ...data, source: "home-value" }),
       });
       if (!res.ok) throw new Error("Request failed");
-      setStatus("success");
+      const result = await res.json().catch(() => ({ notified: false }));
+      // `ok` means the lead was received; `notified` means the notification
+      // provider accepted it. Only the latter justifies an unqualified success.
+      setStatus(result?.notified ? "success" : "degraded");
       form.reset();
     } catch {
       setStatus("error");
     }
   }
 
-  if (status === "success") {
+  if (status === "success" || status === "degraded") {
     return (
       <div className="rounded-card border border-line bg-paper p-8 text-center shadow-soft">
         <CheckCircle2 className="mx-auto h-10 w-10 text-success" aria-hidden />
         <h2 className="mt-4 font-serif text-h3 text-ink">Thanks{name ? `, ${name.split(" ")[0]}` : ""}.</h2>
         <p className="mx-auto mt-2 max-w-md text-body text-slate">
-          Kassidy will personally review your property and reach out with a real valuation.
-          Prefer to talk now?
+          {status === "degraded"
+            ? "We’ve received your request. So it isn’t missed, please also call or text Kassidy directly to confirm."
+            : "Kassidy will personally review your property and reach out with a real valuation. Prefer to talk now?"}
         </p>
         <a href={site.phoneHref} className="mt-5 inline-flex items-center gap-2 font-medium text-ink">
           <Phone className="h-4 w-4 text-gold" aria-hidden /> {site.phoneDisplay}
